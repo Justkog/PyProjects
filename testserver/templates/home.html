@@ -1,0 +1,110 @@
+{% load bootstrap3 %}
+{% bootstrap_css %}
+{% bootstrap_javascript %}
+{% bootstrap_messages %}
+
+<!-- {% bootstrap_label "Welcome on bootstrap!" %} -->
+{% load staticfiles %}
+<!-- <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css"> -->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap-theme.min.css">
+<link href="{% static "libs/css/bootstrap-slider.css" %}" rel="stylesheet">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+<!-- <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script> -->
+<script type='text/javascript' src="{% static "libs/bootstrap-slider.min.js" %}"></script>
+<script type='text/javascript' src="https://autobahn.s3.amazonaws.com/autobahnjs/latest/autobahn.min.jgz"></script>
+<script>AUTOBAHN_DEBUG = true;</script>
+<script src="http://autobahn.s3.amazonaws.com/autobahnjs/latest/autobahn.min.jgz"></script>
+
+<head>
+<style>
+body {
+	margin-left: 40px;
+	max-width: 1024px;
+	margin: auto;
+}
+.well {
+	display: inline-block;
+}
+#ex1 {
+/* 	display: inline-block; */
+}
+</style>
+</head>
+
+<body>
+<h3>Motor control</h3>
+      		<p>Slide to adjust speed</p>
+      		<div class="well">
+				<input id="ex1" data-slider-id='ex1Slider' type="text" data-slider-min="0" data-slider-max="100" data-slider-step="5" data-slider-value="0"/>
+			</div>
+      		<div id ="alert_placeholder"></div>
+</body>
+
+<script type='text/javascript'>
+    	
+    	var autobahn_session;
+    	var last_slider_value = 11;
+    	
+    	bootstrap_alert = function(){}
+    	bootstrap_alert.warning = function(message){
+    		$('#alert_placeholder').html('<div class="alert alert-danger alert-dissmissable"> <span>' + message + '</span> </div>')
+    	}
+    	
+    	$(document).ready(function() {
+    		/* Example 1 */
+    		console.log("ready");
+	    	$('#ex1').slider({
+	          	formatter: function(value) {
+	            	return 'Current value: ' + value;
+	          	}
+	        });
+    		bootstrap_alert.warning('This is a test alert.');
+    		last_slider_value = $('#ex1').attr("data-slider-value");
+    		console.log(last_slider_value);
+    	});
+    	
+        // the URL of the WAMP Router (Crossbar.io)
+        //
+    	var wsuri;
+        if (document.location.origin == "file://") {
+           wsuri = "ws://127.0.0.1:8080/ws";
+        } else {
+        	wsuri = "ws:justkog.happyforever.com:8080/ws";
+//            wsuri = (document.location.protocol === "http:" ? "ws:" : "wss:") + "//" +
+//                        document.location.host + "/ws";
+        }
+        // the WAMP connection to the Router
+        //
+        var connection = new autobahn.Connection({
+           url: wsuri,
+           realm: "realm1"
+        });
+        
+        // fired when connection is established and session attached
+        //
+        connection.onopen = function (session, details) {
+           console.log("Connected");
+           autobahn_session = session;
+           $('#ex1').slider({
+	          	formatter: function(value) {
+	          		if(value != last_slider_value)
+	          		{
+	          			last_slider_value = value;
+	          			autobahn_session.publish('com.example.onmotorslide', [value]);
+		                console.log("published to topic 'com.example.onmotorslide'");	
+	          		}
+	            	return 'Current value: ' + value;
+	          	}
+	        });
+        }
+        
+     	// fired when connection was lost (or could not be established)
+        //
+        connection.onclose = function (reason, details) {
+           console.log("Connection lost: " + reason);
+     	}
+     	
+     	// now actually open the connection
+        //
+        connection.open();
+</script>
