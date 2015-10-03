@@ -10,9 +10,18 @@ from twisted.internet.defer import inlineCallbacks
 
 from autobahn.twisted.wamp import ApplicationSession, ApplicationRunner
 
+# Polling queus for tkinter communication
+# should have used twisted tksupport instead
 wampEventsQueue = Queue.Queue()
 guiEventsQueue = Queue.Queue()
 g_runner = reactor
+
+class Message(object):
+    def __init__(self, **kwargs):
+        for k in kwargs.keys():
+            self.__setattr__(k, kwargs[k])
+    def run(self):
+        pass
 
 class App:
 
@@ -33,7 +42,7 @@ class App:
     def updateScale(self, angle):
 ##        duty = (float(angle) / 10 + 2.5) / 2
 ##        PServo.ChangeDutyCycle(duty)
-        guiEventsQueue.put("gui event triggered")
+        guiEventsQueue.put(Message(event="pyMotorSpeedUpdate", value=int(angle)))
         RPIOduty = float(angle) / 100 * 1000
         # servo.set_servo(18, RPIOduty)
 
@@ -48,10 +57,16 @@ class App:
         tkMessageBox._show(title="info", message="connection engaged")
 
     def poll(self):
+        # print("gui poll function called")
         if self.wampQueue.qsize():
-            # do something with the event
-            self.wampQueue.get()
-            tkMessageBox._show(title="info", message="we got a message")
+            # do something with the events
+            print("wamp event received in gui poll thread")
+            msg = self.wampQueue.get()
+            # tkMessageBox._show(title="info", message="we got a message with value : " + str(msg.value))
+
+            # Update the scale accordingly
+            self.scale.set(msg.value)
+            self.poll()
         self.root.after(100, self.poll)
 
 
@@ -74,7 +89,7 @@ class Component(ApplicationSession):
     def on_event(self, i):
         print("Got event: {}".format(i))
         self.received += 1
-        wampEventsQueue.put("event received")
+        wampEventsQueue.put(Message(event="clientMotorSpeedUpdate", value=i))
         # self.config.extra for configuration, etc. (see [A])
         if self.received > self.config.extra['max_events']:
             print("Received enough events; disconnecting.")
@@ -86,11 +101,13 @@ class Component(ApplicationSession):
             reactor.stop()
 
     def poll(self):
-        print("poll function called")
+        # print("wamp poll function called")
         if guiEventsQueue.qsize():
-            guiEventsQueue.get()
-            # yield self.publish(u'com.example.onguievent', "gui event triggered")
-            print("gui event received in wamp thread")
+            msg = guiEventsQueue.get()
+            print("gui event received in wamp poll thread")
+            self.publish(u'com.example.' + msg.event, msg.value)
+            self.poll()
+
         g_runner.callLater(0.1, self.poll, )
 
 
@@ -103,7 +120,7 @@ if __name__ == '__main__':
         environ.get("AUTOBAHN_DEMO_ROUTER", u"ws://127.0.0.1:8080/ws"),
         u"realm1",
         extra=dict(
-            max_events=105,  # [A] pass in additional configuration
+            max_events=1005,  # [A] pass in additional configuration
         ),
         debug_wamp=True,  # optional; log many WAMP details
         debug=True,  # optional; log even more details

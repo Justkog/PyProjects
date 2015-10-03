@@ -43,7 +43,7 @@ body {
 	      			<span>Host</span>
 	      		</button>
 	      		<button type="button" class="btn btn-default" id=BtnClient>
-	      			<span>Request Video</span>
+	      			<span>Client</span>
 	      		</button>
 	      		<button type="button" class="btn btn-default" id=BtnStop>
 	      			<span>Stop</span>
@@ -68,7 +68,6 @@ body {
     	var autobahn_session;
     	var last_slider_value = 11;
     	var host = false;
-    	var is_client = false;
     	
     	bootstrap_alert = function(){}
     	bootstrap_alert.warning = function(message){
@@ -82,8 +81,16 @@ body {
     	})
     	
     	$("#BtnClient").click(function(){
-    		bootstrap_alert.warning('Video requested.');
-    		is_client = true;
+    		bootstrap_alert.warning('Client selected.');
+    		autobahn_session.subscribe('com.example.onStreamSession', onStreamSession).then(
+               		function (sub){
+               			console.log('subscribed to ' + sub.topic + ' topic');
+               		},
+               		function (err){
+               			console.log('failed to subscribe to topic ', err);
+               		}
+                  );
+    		
     	})
     	
     	$("#BtnStop").click(function(){
@@ -159,22 +166,7 @@ body {
               			console.log('failed to subscribe to topic ', err);
               		}
                  );
-           autobahn_session.subscribe('com.example.onStreamSession', onStreamSession).then(
-              		function (sub){
-              			console.log('subscribed to ' + sub.topic + ' topic');
-              		},
-              		function (err){
-              			console.log('failed to subscribe to topic ', err);
-              		}
-                 );
-           autobahn_session.subscribe('com.example.onVideoRequest', onVideoRequest).then(
-             		function (sub){
-             			console.log('subscribed to ' + sub.topic + ' topic');
-             		},
-             		function (err){
-             			console.log('failed to subscribe to topic ', err);
-             		}
-                );
+           
         }
         
      	// fired when connection was lost (or could not be established)
@@ -193,12 +185,6 @@ body {
      	var RTCIceCandidate = window.mozRTCIceCandidate || window.webkitRTCIceCandidate || window.RTCIceCandidate;
      	
      	var streamInfos = {}
-     	
-     	var constraints = {
-     			video : true,
-     			audio : true,
-     	};
-
      	var servers = {
      		iceServers : [
      		 	{urls: "stun:stun.l.google.com:19302"}               
@@ -207,58 +193,101 @@ body {
      	
      	var peerCon = new RTCPeerConnection(servers);
      	console.log(peerCon);
-     	
-     	peerCon.onicecandidate = gotIceCandidate;
-     	peerCon.onaddstream = gotRemoteStream;
-     	
-		navigator.getUserMedia(constraints, getUserMediaSuccess, errorHandler);
-     	
-     	function getUserMediaSuccess(stream) {
-     		streamInfos.localStream = stream;
-     		document.querySelector('#sourceVideo').src = window.URL.createObjectURL(stream);
-     		peerCon.addStream(streamInfos.localStream);
-     	}
-     	
-     	function StartHost()
-     	{
-     		peerCon.createOffer(gotDescription, errorHandler);	
-     	}
-     	
-     	function onStreamSession(args){
-     		var session = JSON.parse(args[0]);
-     		
-     		peerCon.setRemoteDescription(new RTCSessionDescription(session), function(){
-     			peerCon.createAnswer(gotDescription, errorHandler);
-     		}, errorHandler);
-     	}
-     	
-     	function onIceCandidate(args){
-     		var iceCandidate = JSON.parse(args[0]);
-     		
-     		peerCon.addIceCandidate(new RTCIceCandidate(iceCandidate));
-     	}
-     	
-     	function gotIceCandidate(event){
-     		if(event.candidate != null){
-     			autobahn_session.publish('com.example.onIceCandidate', [JSON.stringify(event.candidate)]);
+     	peerCon.onaddstream = onStreamAdded;
+     	peerCon.onicecandidate = function(e){
+     		if (!peerCon || !e || !e.candidate)
+     			{
+     				console.log('icecandidate fail.');
+     				return;
+     			}
+     		else {
+     			console.log('ice candidate success.');
+     			console.log(e.candidate);
+     			autobahn_session.publish('com.example.onIceCandidate', [JSON.stringify(e.candidate)]);
+     			peerCon.onicecandidate = null;
      		}
      	}
      	
-     	function gotDescription(description){
-     		console.log('got description');
-     		
-     		peerCon.setLocalDescription(description, function(){
-     			autobahn_session.publish('com.example.onStreamSession', [JSON.stringify(description)]);
-     		}, errorHandler);
+     	function onStreamAdded(evt)
+     	{
+     		console.log('add stream event.')
+     		console.log(evt.stream);
+     		streamInfos.remoteVideoUrl = window.URL.createObjectURL(evt.stream);
+     		console.log(streamInfos.remoteVideoUrl);
+     		document.querySelector('#remoteVideo').src = streamInfos.remoteVideoUrl;
      	}
      	
-     	function gotRemoteStream(event){
-     		console.log('got remote stream');
-     		
-     		document.querySelector('#remoteVideo').src = window.URL.createObjectURL(event.stream);
+     	function StartHost(){
+	     	navigator.getUserMedia(
+	     		{
+	     			audio : false,
+	     			video : true
+	     		},
+	     		function(stream){
+	     			streamInfos.localStream = stream;
+	     			streamInfos.localVideoUrl = window.URL.createObjectURL(stream);
+	     			bootstrap_alert.warning(streamInfos.localVideoUrl);
+	     			console.log(streamInfos.localVideoUrl);
+	     			console.log(streamInfos.localStream);
+	     			document.querySelector('#sourceVideo').src = streamInfos.localVideoUrl;
+	     			
+	     			//can do that only after stream creation (acceptation of browser query to use camera)
+	     	     	peerCon.addStream(streamInfos.localStream);
+	     			
+	     			console.log("creating offer...");
+	     			var constraints = {
+     					OfferToReceiveAudio: true,
+     					OfferToReceiveVideo: true
+	     			};
+	     			peerCon.createOffer(gotLocalDescription, error, constraints);
+	     			
+	     			
+	     		},
+	     		function(){
+	     			streamInfos.error = 'failed to access camera';
+	     			console.log(streamInfos.error);
+	     		}
+	     	)
      	}
      	
-     	function errorHandler(error){
-     		console.log(error);
+     	function gotLocalDescription(description)
+     	{
+     		console.log(description);
+     		peerCon.setLocalDescription(new RTCSessionDescription(description));
+     		//need to send this description to the remotePeerConnection
+     		//for this we can publish the description
+     		console.log(JSON.stringify(description));
+     		autobahn_session.publish('com.example.onStreamSession', [JSON.stringify(description)]);
      	}
+     	
+     	function onStreamSession(args){
+     		if(!host)
+     		{
+     			console.log('streamSession received');
+     			var remoteDescription = JSON.parse(args[0]);
+     			console.log(remoteDescription);
+     			
+     			peerCon.setRemoteDescription(new RTCSessionDescription(remoteDescription), function(){
+     				console.log('setRemoteDescription, creating answer.');
+     				peerCon.createAnswer(function(answer){
+     					peerCon.setLocalDescription(answer, function(){
+     						console.log('created Answer and setLocalDescription')
+     					}, error);
+     				}, error);
+     			}, error);
+     			console.log('remote description set on RTC peer connection.')
+     		}
+     	}
+     	
+     	function onIceCandidate(args){
+     		console.log('IceCandidate received');
+ 			var remoteIceCandidate = JSON.parse(args[0]);
+ 			console.log(remoteIceCandidate);
+ 			
+ 			peerCon.addIceCandidate(new RTCIceCandidate(remoteIceCandidate));
+     	}
+     	
+     	function error(err){
+			console.log('failed : ', err);
+		}
 </script>
